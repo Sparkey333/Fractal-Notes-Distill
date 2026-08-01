@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 22.18+ strips TypeScript types natively, which is what lets the studio
+      # run with no build step. Pinning the minor guards against a runner
+      # defaulting to something older, where every `node src/*.ts` would fail.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18'
+          cache: npm
+
+      - run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: test
+        run: node --test test/*.test.ts
+
+      # The CLI is the main entry point and is not covered by the unit tests;
+      # this catches an import cycle or a syntax error that typecheck misses.
+      - name: cli smoke
+        run: |
+          node src/cli.ts help > /dev/null
+          node src/cli.ts init
+          node src/cli.ts provider list > /dev/null
+          node src/cli.ts character new --file examples/character.example.json
+          node src/cli.ts character list
+          node src/cli.ts asset new --character vesper-kline --kind reference \
+            --description "portrait against the back curtain" > /dev/null
+          node src/cli.ts asset list
+          node src/cli.ts doctor
