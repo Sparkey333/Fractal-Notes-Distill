@@ -1,0 +1,10 @@
+node_modules/
+*.log
+
+# Studio runtime state. Contains BYOK secrets, ingested media derivatives,
+# character memory, and generated assets. Never commit.
+.studio/
+studio.config.json
+
+# macOS
+.DS_Store

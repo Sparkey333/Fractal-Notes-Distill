@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>studio console</title>
+<style>
+  :root {
+    --bg: #0d0e12; --panel: #14161d; --line: #242833; --ink: #e6e8ef;
+    --dim: #878da0; --accent: #d9a441; --ok: #4fb477; --bad: #d1595f; --warn: #d9a441;
+    --radius: 8px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f7f9; --panel: #fff; --line: #e2e4ea; --ink: #1a1c22;
+      --dim: #6b7182; --accent: #9a6b12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
+  .muted { color: var(--dim); }
+  nav { display: flex; gap: 4px; padding: 12px 24px 0; flex-wrap: wrap; }
+  nav button {
+    background: none; border: 0; color: var(--dim); padding: 8px 14px;
+    border-radius: var(--radius) var(--radius) 0 0; cursor: pointer;
+    font: inherit; border-bottom: 2px solid transparent;
+  }
+  nav button:hover { color: var(--ink); }
+  nav button[aria-selected="true"] {
+    color: var(--ink); border-bottom-color: var(--accent); background: var(--panel);
+  }
+  main { padding: 20px 24px 60px; }
+  section[hidden] { display: none; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
+  }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 180px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--line); }
+  .dot.err { background: var(--bad); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  input, select, textarea {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; font: inherit; min-width: 0;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button.action {
+    background: var(--accent); color: #16171c; border: 0; border-radius: 6px;
+    padding: 7px 13px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.ghost {
+    background: none; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 13px; font: inherit; cursor: pointer;
+  }
+  button.ghost:hover { color: var(--ink); border-color: var(--dim); }
+  a { color: var(--accent); }
+  .tag {
+    font-size: 11px; padding: 2px 7px; border-radius: 99px;
+    border: 1px solid var(--line); color: var(--dim);
+  }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; }
+  .chat { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { padding: 9px 12px; border-radius: var(--radius); max-width: 78%; }
+  .bubble.them { background: var(--bg); border: 1px solid var(--line); align-self: flex-start; }
+  .bubble.me { background: var(--accent); color: #16171c; align-self: flex-end; }
+  .notice {
+    border-left: 3px solid var(--warn); padding: 10px 14px; margin-bottom: 14px;
+    background: var(--panel); border-radius: 0 var(--radius) var(--radius) 0;
+    color: var(--dim); font-size: 13px;
+  }
+  .err-banner { border-left-color: var(--bad); color: var(--bad); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>studio</h1>
+  <span class="muted mono" id="summary">loading…</span>
+</header>
+
+<nav id="tabs">
+  <button data-tab="byok" aria-selected="true">BYOK &amp; models</button>
+  <button data-tab="characters" aria-selected="false">Characters</button>
+  <button data-tab="ingest" aria-selected="false">Ingest</button>
+  <button data-tab="assets" aria-selected="false">Assets</button>
+</nav>
+
+<main>
+  <div id="error" class="notice err-banner" hidden></div>
+
+  <!-- ------------------------------------------------------------ BYOK -->
+  <section id="tab-byok">
+    <div class="notice">
+      Keys are stored locally in <code>.studio/keys.json</code> at mode 0600 and are
+      gitignored. Set <code>STUDIO_PASSPHRASE</code> before starting the server to
+      encrypt them at rest. Local providers need no key — only a reachable endpoint.
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <strong class="grow">Default provider per capability</strong>
+        <button class="ghost" id="probe-all">Probe all</button>
+      </div>
+      <div class="row" id="defaults" style="margin-top:10px"></div>
+    </div>
+
+    <h3>Local models <span class="muted" style="font-weight:400">— no key required</span></h3>
+    <div id="local-list"></div>
+
+    <h3>Cloud providers <span class="muted" style="font-weight:400">— bring your own key</span></h3>
+    <div id="cloud-list"></div>
+  </section>
+
+  <!-- ------------------------------------------------------ characters -->
+  <section id="tab-characters" hidden>
+    <div class="row" style="align-items:flex-start; gap:18px">
+      <div style="flex:0 0 250px; min-width:220px">
+        <div id="roster"></div>
+      </div>
+      <div class="grow">
+        <div class="card" id="character-detail">
+          <span class="muted">Select a character.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------- ingest -->
+  <section id="tab-ingest" hidden>
+    <div class="notice">
+      Ingest reads timing, shot boundaries and motion energy from source footage.
+      Source frames are admitted with <code>likenessUse: denied</code> — they inform
+      how a motion is <em>timed</em>, never who a character <em>looks like</em>.
+      Run <code>studio ingest &lt;name&gt; &lt;dir&gt;</code> to add footage.
+    </div>
+    <div id="projects"></div>
+  </section>
+
+  <!-- ---------------------------------------------------------- assets -->
+  <section id="tab-assets" hidden>
+    <div class="card"><div class="row" id="job-summary"></div></div>
+    <div class="scroll"><table id="jobs"></table></div>
+  </section>
+</main>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const state = { characters: [], activeSlug: null, chat: [] };
+
+async function api(path, body, method) {
+  const isGet = !method || method === "GET";
+  const url = isGet && body
+    ? path + "?" + new URLSearchParams(body)
+    : path;
+  const res = await fetch(url, {
+    method: method || (body && !isGet ? "POST" : "GET"),
+    headers: { "content-type": "application/json", "x-studio-token": TOKEN },
+    body: !isGet && body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({ error: "Bad response" }));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+function showError(message) {
+  const el = document.getElementById("error");
+  el.textContent = message;
+  el.hidden = !message;
+}
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k === "html") node.innerHTML = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v);
+  }
+  for (const child of children.flat()) {
+    if (child == null || child === false) continue;
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+// ------------------------------------------------------------------- tabs
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-tab]");
+  if (!button) return;
+  for (const b of document.querySelectorAll("nav button")) {
+    b.setAttribute("aria-selected", String(b === button));
+  }
+  for (const s of document.querySelectorAll("main section")) {
+    s.hidden = s.id !== "tab-" + button.dataset.tab;
+  }
+  refresh(button.dataset.tab);
+});
+
+// ------------------------------------------------------------------- BYOK
+const CAPABILITIES = ["text", "image", "video", "voice", "mesh3d", "embed"];
+
+async function loadProviders() {
+  const { providers, defaults } = await api("/api/providers");
+
+  const defaultsRow = document.getElementById("defaults");
+  defaultsRow.replaceChildren(...CAPABILITIES.map((cap) => {
+    const eligible = providers.filter((p) => p.capabilities.includes(cap));
+    const select = el("select", {
+      onchange: async (e) => {
+        try {
+          await api("/api/providers/default", { capability: cap, id: e.target.value });
+          showError("");
+        } catch (err) { showError(err.message); }
+      },
+    },
+      el("option", { value: "" }, "—"),
+      ...eligible.map((p) => {
+        const opt = el("option", { value: p.id }, p.name + (p.configured ? "" : " (no key)"));
+        if (defaults[cap] === p.id) opt.selected = true;
+        return opt;
+      }),
+    );
+    return el("label", { class: "row", style: "gap:6px" },
+      el("span", { class: "muted mono" }, cap), select);
+  }));
+
+  renderProviderList("local-list", providers.filter((p) => p.kind === "local"));
+  renderProviderList("cloud-list", providers.filter((p) => p.kind === "cloud"));
+}
+
+function renderProviderList(containerId, providers) {
+  document.getElementById(containerId).replaceChildren(...providers.map((p) => {
+    const dot = el("span", { class: "dot " + (p.configured ? "on" : "off"), id: "dot-" + p.id });
+    const status = el("span", { class: "muted mono", id: "status-" + p.id },
+      p.kind === "local" ? p.baseUrl : (p.masked || "no key"));
+
+    const keyInput = p.kind === "cloud"
+      ? el("input", { type: "password", placeholder: "paste key", "aria-label": "API key for " + p.name, style: "width:190px" })
+      : el("input", { type: "text", value: p.baseUrl, "aria-label": "Endpoint for " + p.name, style: "width:220px" });
+
+    const save = el("button", { class: "ghost", onclick: async () => {
+      try {
+        if (p.kind === "cloud") {
+          const result = await api("/api/providers/key", { id: p.id, key: keyInput.value });
+          keyInput.value = "";
+          status.textContent = result.masked || "no key";
+          dot.className = "dot " + (result.masked ? "on" : "off");
+        } else {
+          await api("/api/providers/url", { id: p.id, url: keyInput.value });
+          status.textContent = keyInput.value;
+        }
+        showError("");
+      } catch (err) { showError(err.message); }
+    }}, "Save");
+
+    const probe = el("button", { class: "ghost", onclick: async () => {
+      status.textContent = "probing…";
+      try {
+        const { statuses } = await api("/api/providers/probe", { id: p.id });
+        const s = statuses[0];
+        dot.className = "dot " + (s.reachable ? "on" : "err");
+        status.textContent = s.reachable
+          ? (s.models ? s.models.length + " models" : "reachable")
+          : (s.error || "unreachable");
+      } catch (err) { status.textContent = err.message; dot.className = "dot err"; }
+    }}, "Probe");
+
+    return el("div", { class: "card" },
+      el("div", { class: "row" },
+        dot,
+        el("strong", { style: "min-width:130px" }, p.name),
+        el("span", { class: "grow" }, ...p.capabilities.map((c) => el("span", { class: "tag" }, c))),
+        keyInput, save, probe,
+      ),
+      el("div", { class: "row", style: "margin-top:6px" },
+        status,
+        p.kind === "cloud"
+          ? el("a", { href: p.keyUrl, target: "_blank", rel: "noreferrer noopener", class: "mono" }, "get a key ↗")
+          : el("a", { href: p.keyUrl, target: "_blank", rel: "noreferrer noopener", class: "mono" }, "install ↗"),
+        p.envVar ? el("span", { class: "muted mono" }, "env: " + p.envVar) : null,
+      ),
+    );
+  }));
+}
+
+document.getElementById("probe-all").addEventListener("click", async () => {
+  try {
+    const { statuses } = await api("/api/providers/probe", {});
+    for (const s of statuses) {
+      const dot = document.getElementById("dot-" + s.id);
+      const status = document.getElementById("status-" + s.id);
+      if (dot) dot.className = "dot " + (s.reachable ? "on" : "err");
+      if (status) {
+        status.textContent = s.reachable
+          ? (s.models ? s.models.length + " models" : "reachable")
+          : (s.error || "unreachable");
+      }
+    }
+  } catch (err) { showError(err.message); }
+});
+
+// ------------------------------------------------------------- characters
+async function loadCharacters() {
+  const { characters } = await api("/api/characters");
+  state.characters = characters;
+  document.getElementById("roster").replaceChildren(...(characters.length
+    ? characters.map((c) => el("div", {
+        class: "card", style: "cursor:pointer",
+        onclick: () => selectCharacter(c.slug),
+      },
+        el("div", { class: "row" },
+          el("strong", { class: "grow" }, c.name),
+          el("span", { class: "tag" }, c.contentRating)),
+        el("div", { class: "muted mono", style: "font-size:12px" },
+          c.episodeCount + " ep · " + c.beliefCount + " beliefs"),
+      ))
+    : [el("div", { class: "muted" }, "No characters yet.")]));
+}
+
+async function selectCharacter(slug) {
+  state.activeSlug = slug;
+  state.chat = [];
+  const { character, mood, beliefs, recentEpisodes } = await api("/api/character", { slug });
+
+  const chatBox = el("div", { class: "chat", id: "chat" });
+  const input = el("input", { class: "grow", placeholder: "say something…" });
+
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    chatBox.append(el("div", { class: "bubble me" }, text));
+    chatBox.scrollTop = chatBox.scrollHeight;
+    const thinking = el("div", { class: "bubble them muted" }, "…");
+    chatBox.append(thinking);
+    try {
+      const result = await api("/api/character/say", { slug, text });
+      thinking.remove();
+      chatBox.append(el("div", { class: "bubble them" }, result.reply));
+      chatBox.scrollTop = chatBox.scrollHeight;
+      showError("");
+    } catch (err) {
+      thinking.remove();
+      showError(err.message);
+    }
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+
+  document.getElementById("character-detail").replaceChildren(
+    el("div", { class: "row" },
+      el("h2", { class: "grow", style: "margin:0;font-size:17px" }, character.name),
+      el("span", { class: "tag" }, character.likeness.origin),
+      el("span", { class: "tag" }, character.contentRating),
+    ),
+    character.tagline ? el("p", { class: "muted", style: "margin:4px 0 10px" }, character.tagline) : "",
+    el("div", { class: "muted mono", style: "font-size:12px;margin-bottom:12px" },
+      "valence " + mood.valence.toFixed(2) + " · arousal " + mood.arousal.toFixed(2) +
+      " · " + character.motions.length + " motions"),
+
+    el("div", { class: "row", style: "margin-bottom:12px" },
+      el("button", { class: "ghost", onclick: () => run("/api/character/tick", { slug }) }, "Tick"),
+      el("button", { class: "ghost", onclick: () => run("/api/character/dream", { slug, force: true }) }, "Dream now"),
+    ),
+
+    chatBox,
+    el("div", { class: "row", style: "margin-top:10px" },
+      input, el("button", { class: "action", onclick: send }, "Send")),
+
+    beliefs.length ? el("h3", {}, "Beliefs") : "",
+    ...beliefs.slice(0, 12).map((b) => el("div", { class: "row muted mono", style: "font-size:12.5px" },
+      el("span", { style: "width:44px" }, b.confidence.toFixed(2)), b.statement)),
+
+    el("h3", {}, "Recent memory"),
+    ...recentEpisodes.slice(0, 15).map((e) => el("div", { class: "muted mono", style: "font-size:12px" },
+      "[" + e.kind + "] " + e.content.slice(0, 150))),
+  );
+}
+
+async function run(path, body) {
+  try {
+    const result = await api(path, body);
+    showError("");
+    if (result.thought) alert("Thought: " + result.thought);
+    else if (result.narrative) alert("Dream: " + result.narrative);
+    else if (result.skipped) alert(result.skipped);
+    if (state.activeSlug) selectCharacter(state.activeSlug);
+  } catch (err) { showError(err.message); }
+}
+
+// ----------------------------------------------------------------- ingest
+async function loadProjects() {
+  const { projects } = await api("/api/projects");
+  document.getElementById("projects").replaceChildren(...(projects.length
+    ? projects.map((p) => el("div", { class: "card" },
+        el("div", { class: "row" },
+          el("strong", { class: "grow" }, p.name),
+          el("span", { class: "tag" }, p.mediaCount + " files"),
+          el("span", { class: "tag" }, p.shotCount + " shots")),
+        el("div", { class: "muted mono", style: "font-size:12px" }, p.sourceDir || "")))
+    : [el("div", { class: "muted" }, "No projects ingested yet.")]));
+}
+
+// ----------------------------------------------------------------- assets
+async function loadJobs() {
+  const { jobs, summary } = await api("/api/jobs");
+  document.getElementById("job-summary").replaceChildren(
+    ...Object.entries(summary).map(([k, v]) =>
+      el("span", { class: "tag" }, k + ": " + v)));
+
+  const table = document.getElementById("jobs");
+  table.replaceChildren(
+    el("thead", {}, el("tr", {},
+      ...["", "job", "kind", "character", "provider", "state"].map((h) => el("th", {}, h)))),
+    el("tbody", {}, ...jobs.map((j) => el("tr", {},
+      el("td", {}, el("span", {
+        class: "dot " + (j.status === "complete" ? "on" : j.status === "failed" ? "err" : "off") })),
+      el("td", { class: "mono" }, j.id.slice(0, 16)),
+      el("td", {}, j.spec.kind),
+      el("td", {}, j.spec.characterSlug || "—"),
+      el("td", { class: "muted" }, j.provider || "—"),
+      el("td", { class: "muted mono", style: "font-size:12px" },
+        j.error ? j.error.slice(0, 70) : j.status),
+    ))),
+  );
+}
+
+// ---------------------------------------------------------------- refresh
+async function refresh(tab) {
+  try {
+    if (tab === "byok") await loadProviders();
+    else if (tab === "characters") await loadCharacters();
+    else if (tab === "ingest") await loadProjects();
+    else if (tab === "assets") await loadJobs();
+    showError("");
+  } catch (err) { showError(err.message); }
+}
+
+(async () => {
+  try {
+    const [{ characters }, { summary }] = await Promise.all([
+      api("/api/characters"), api("/api/jobs"),
+    ]);
+    document.getElementById("summary").textContent =
+      characters.length + " characters · " + summary.total + " asset jobs";
+  } catch (err) { showError(err.message); }
+  refresh("byok");
+})();
+</script>
+</body>
+</html>

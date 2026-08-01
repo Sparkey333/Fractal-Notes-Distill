@@ -1,0 +1,23 @@
+{
+  "name": "fractal-notes-distill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Character studio: BYOK model routing, agent minds with heartbeat/dreaming, video ingest and asset generation.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "studio": "./src/cli.ts"
+  },
+  "scripts": {
+    "studio": "node src/cli.ts",
+    "serve": "node src/server/serve.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.7.0"
+  }
+}
