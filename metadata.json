@@ -1,0 +1,5 @@
+{
+  "name": "Fractal Notes Distill",
+  "description": "An infinitely zoomable outliner that distills any branch of your notes into its essence — with Gemini when a key is configured, fully offline otherwise.",
+  "requestFramePermissions": []
+}
